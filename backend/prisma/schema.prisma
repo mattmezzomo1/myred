@@ -1,0 +1,257 @@
+// Prisma Schema for NoJob Platform
+// Database: MariaDB
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserType {
+  WOMAN
+  MAN
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  MODERATOR
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum SupportStatus {
+  PENDING
+  RELEASED
+  FROZEN
+  REFUNDED
+}
+
+enum ReportStatus {
+  PENDING
+  INVESTIGATING
+  RESOLVED
+  DISMISSED
+}
+
+enum MeetingStatus {
+  SCHEDULED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+model User {
+  id                String             @id @default(uuid())
+  email             String             @unique
+  password          String
+  name              String
+  userType          UserType
+  role              UserRole           @default(USER)
+  age               Int
+  location          String
+  bio               String?            @db.Text
+  photos            String?            @db.Text // JSON array of photo URLs
+  verified          Boolean            @default(false)
+  banned            Boolean            @default(false)
+  banReason         String?            @db.Text
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  lastActive        DateTime           @default(now())
+  
+  // Verification
+  verification      Verification?
+  
+  // Relationships
+  sentLikes         Like[]             @relation("SentLikes")
+  receivedLikes     Like[]             @relation("ReceivedLikes")
+  sentMessages      Message[]          @relation("SentMessages")
+  receivedMessages  Message[]          @relation("ReceivedMessages")
+  sentSupports      MonthlySupport[]   @relation("SentSupports")
+  receivedSupports  MonthlySupport[]   @relation("ReceivedSupports")
+  sentReports       Report[]           @relation("SentReports")
+  receivedReports   Report[]           @relation("ReceivedReports")
+  meetings          Meeting[]
+  goals             Goal[]
+  questionnaire     Questionnaire?
+  emergencyContacts EmergencyContact[]
+  panicAlerts       PanicAlert[]
+  
+  @@index([email])
+  @@index([userType])
+  @@index([location])
+}
+
+model Verification {
+  id                String             @id @default(uuid())
+  userId            String             @unique
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documentUrl       String?
+  documentStatus    VerificationStatus @default(PENDING)
+  selfieUrl         String?
+  selfieStatus      VerificationStatus @default(PENDING)
+  videoUrl          String?
+  videoStatus       VerificationStatus @default(PENDING)
+  backgroundCheck   Boolean            @default(false)
+  psychometricScore Int?
+  fullyVerified     Boolean            @default(false)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  
+  @@index([userId])
+}
+
+model Like {
+  id          String   @id @default(uuid())
+  senderId    String
+  sender      User     @relation("SentLikes", fields: [senderId], references: [id], onDelete: Cascade)
+  receiverId  String
+  receiver    User     @relation("ReceivedLikes", fields: [receiverId], references: [id], onDelete: Cascade)
+  matched     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  
+  @@unique([senderId, receiverId])
+  @@index([senderId])
+  @@index([receiverId])
+}
+
+model Message {
+  id          String   @id @default(uuid())
+  senderId    String
+  sender      User     @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  receiverId  String
+  receiver    User     @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+  text        String   @db.Text
+  flagged     Boolean  @default(false)
+  flagReasons String?  @db.Text // JSON array
+  read        Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  
+  @@index([senderId, receiverId])
+  @@index([createdAt])
+}
+
+model MonthlySupport {
+  id              String        @id @default(uuid())
+  senderId        String
+  sender          User          @relation("SentSupports", fields: [senderId], references: [id], onDelete: Cascade)
+  receiverId      String
+  receiver        User          @relation("ReceivedSupports", fields: [receiverId], references: [id], onDelete: Cascade)
+  amount          Float
+  status          SupportStatus @default(PENDING)
+  createdAt       DateTime      @default(now())
+  releaseAt       DateTime // 48 hours after creation
+  releasedAt      DateTime?
+  frozenReason    String?       @db.Text
+  
+  @@index([senderId])
+  @@index([receiverId])
+  @@index([status])
+}
+
+model Report {
+  id              String       @id @default(uuid())
+  reporterId      String
+  reporter        User         @relation("SentReports", fields: [reporterId], references: [id], onDelete: Cascade)
+  reportedUserId  String
+  reportedUser    User         @relation("ReceivedReports", fields: [reportedUserId], references: [id], onDelete: Cascade)
+  category        String // Harassment, Sexualization, Manipulation, Threat, Scam, Other
+  description     String       @db.Text
+  evidence        String?      @db.Text // JSON array of URLs
+  status          ReportStatus @default(PENDING)
+  resolution      String?      @db.Text
+  createdAt       DateTime     @default(now())
+  resolvedAt      DateTime?
+
+  @@index([reporterId])
+  @@index([reportedUserId])
+  @@index([status])
+}
+
+model Meeting {
+  id                String        @id @default(uuid())
+  userId            String
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  matchUserId       String
+  location          String
+  dateTime          DateTime
+  status            MeetingStatus @default(SCHEDULED)
+  checkInTime       DateTime?
+  checkInLocation   String?       @db.Text // JSON lat/lng
+  lastLocationUpdate DateTime?
+  safetyConfirmed   Boolean       @default(false)
+  emergencyContactId String?
+  createdAt         DateTime      @default(now())
+  completedAt       DateTime?
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Goal {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category    String // course, job, moving, treatment, other
+  title       String
+  description String?  @db.Text
+  targetDate  DateTime?
+  progress    Int      @default(0) // 0-100
+  completed   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Questionnaire {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  intentions        String   @db.Text
+  expectations      String   @db.Text
+  relationshipGoal  String
+  commitment        String
+  currentSituation  String?  @db.Text
+  monthlyIncome     String?
+  mainNeed          String?
+  acceptedTerms     Boolean  @default(false)
+  acceptedConduct   Boolean  @default(false)
+  createdAt         DateTime @default(now())
+
+  @@index([userId])
+}
+
+model EmergencyContact {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  phone     String
+  relation  String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model PanicAlert {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  location  String?  @db.Text // JSON lat/lng
+  reason    String?
+  resolved  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+
